@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Call Queue Performance — Internal — Apr 27–May 26, 2026</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+  :root {
+    --green:#1D9E75;--amber:#BA7517;--red:#c0392b;
+    --red-bg:#FCEBEB;--red-text:#791F1F;--amber-bg:#FAEEDA;--amber-text:#633806;
+    --green-bg:#E1F5EE;--green-text:#085041;--blue:#185FA5;--blue-bg:#E6F1FB;--blue-text:#0C447C;
+    --border:rgba(0,0,0,0.09);--text:#1a1a1a;--text-muted:#6b6b6b;--text-faint:#9b9b9b;
+    --bg:#f5f4f0;--surface:#ffffff;--surface2:#f0efe9;--accent:#185FA5;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.6;min-height:100vh}
+  .top-bar{background:var(--accent);padding:0 2rem;display:flex;align-items:center;height:44px;gap:12px}
+  .top-bar-label{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,0.7)}
+  .top-bar-dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,0.4)}
+  .top-bar-title{font-size:13px;font-weight:500;color:#fff}
+  .header{padding:1.5rem 2rem;border-bottom:1px solid var(--border);background:var(--surface)}
+  .header-meta{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:6px}
+  .header h1{font-size:22px;font-weight:600;margin-bottom:4px}
+  .header-sub{font-size:13px;color:var(--text-muted)}
+  .header-badge{display:inline-block;font-size:11px;font-weight:500;padding:3px 8px;border-radius:4px;margin-top:8px;background:#E6F1FB;color:#0C447C}
+  .main{max-width:1100px;margin:0 auto;padding:1.5rem 2rem 3rem}
+  .scorecards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:1rem}
+  .sc{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+  .sc-label{font-size:11px;font-weight:500;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+  .sc-value{font-size:20px;font-weight:600;font-family:'DM Mono',monospace;line-height:1.1}
+  .sc-value.green{color:var(--green)}.sc-value.amber{color:var(--amber)}.sc-value.red{color:var(--red)}.sc-value.blue{color:var(--blue)}
+  .sc-sub{font-size:11px;color:var(--text-faint);margin-top:3px}
+  .sc-group-label{font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin:1rem 0 6px;padding-bottom:4px;border-bottom:1px solid var(--border)}
+  .tab-bar{display:flex;gap:2px;padding:14px 18px 0;background:var(--surface);flex-wrap:wrap}
+  .tab-btn{padding:7px 14px;border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;background:var(--surface2);color:var(--text-muted);transition:all .15s}
+  .tab-btn.active{background:var(--surface);color:var(--text);border-color:var(--border)}
+  .tab-content{background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 12px 12px;padding:18px;display:none}
+  .tab-content.active{display:block}
+  .section{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:1rem;overflow:hidden}
+  .section-head{padding:14px 18px;border-bottom:1px solid var(--border)}
+  .section-head h2{font-size:13px;font-weight:600}
+  .section-body{padding:18px}
+  .insight{font-size:13px;padding:10px 14px;border-left:3px solid var(--amber);border-radius:0 6px 6px 0;margin-bottom:14px;line-height:1.6;background:var(--amber-bg);color:var(--text)}
+  .insight.blue{border-left-color:var(--blue);background:var(--blue-bg);color:var(--blue-text)}
+  .insight.green{border-left-color:var(--green);background:var(--green-bg);color:var(--green-text)}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:12px;font-size:12px;color:var(--text-muted)}
+  .legend span{display:flex;align-items:center;gap:5px}
+  .legend .sw{width:10px;height:10px;border-radius:2px;display:inline-block}
+  .note{font-size:12px;color:var(--text-muted);margin-top:10px;padding:8px 12px;background:var(--surface2);border-radius:6px;line-height:1.5}
+  .chart-outer{position:relative;width:100%}
+  .chart-filter{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+  .chart-filter label{font-size:12px;color:var(--text-muted)}
+  .chart-filter select{padding:5px 10px;font-size:12px;font-family:'DM Sans',sans-serif;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer}
+  .toggle-group{display:flex;background:var(--surface2);border-radius:6px;padding:3px;gap:2px;margin-bottom:14px;width:fit-content;flex-wrap:wrap}
+  .toggle-btn{padding:5px 14px;border:none;border-radius:4px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;background:transparent;color:var(--text-muted);transition:all .15s}
+  .toggle-btn.active{background:var(--accent);color:#fff}
+  .heatmap-wrap{overflow-x:auto}
+  .heatmap-wrap table{border-collapse:collapse;font-size:11.5px;min-width:520px;width:100%}
+  .heatmap-wrap th{padding:6px 4px;color:var(--text-muted);font-weight:500;text-align:center;font-size:11px;letter-spacing:.03em}
+  .heatmap-wrap th.hour-col{text-align:left;padding-left:6px}
+  .hm-cell{text-align:center;padding:7px 3px;border:1.5px solid #fff;font-weight:500;font-family:'DM Mono',monospace;font-size:11px;color:#fff}
+  .hm-cell.no-data{background:#e2e0d8;color:var(--text-faint)}
+  .hm-cell.on-target{background:var(--green)}.hm-cell.warning{background:var(--amber)}.hm-cell.critical{background:var(--red)}
+  .hour-label{padding:6px 8px 6px 4px;color:var(--text-muted);font-size:11px;white-space:nowrap;font-family:'DM Mono',monospace}
+  .hour-label.starred{font-weight:600;color:var(--text)}
+  .miss-table-wrap{overflow-x:auto}
+  .miss-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .miss-table th{text-align:left;padding:8px 10px;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)}
+  .miss-table th.right{text-align:right}
+  .miss-table td{padding:7px 10px;border-bottom:1px solid var(--border)}
+  .miss-table td.right{text-align:right;font-family:'DM Mono',monospace}
+  .miss-table tr:last-child td{border-bottom:none}
+  .severity-badge{font-size:11px;font-weight:500;padding:2px 7px;border-radius:4px}
+  .staffing-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px}
+  .staff-card{border:1px solid var(--border);border-radius:8px;padding:12px 14px;background:var(--surface2)}
+  .staff-card .s-time{font-size:16px;font-weight:600;font-family:'DM Mono',monospace;color:var(--red);margin-bottom:2px}
+  .staff-card .s-label{font-size:11px;color:var(--text-muted)}
+  .routing-box{background:var(--blue-bg);border:1px solid #B5D4F4;border-radius:8px;padding:14px 16px;font-size:13px;color:var(--blue-text);line-height:1.6;margin-top:12px}
+  .anomaly-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .anomaly-card{border:1px solid rgba(192,57,43,0.25);border-radius:8px;padding:14px 16px;background:var(--red-bg)}
+  .anomaly-card .a-date{font-size:15px;font-weight:600;font-family:'DM Mono',monospace;color:var(--red-text);margin-bottom:4px}
+  .anomaly-card .a-detail{font-size:12px;color:#a33;line-height:1.5}
+  .questions-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}
+  .question-card{border:1px solid var(--border);border-radius:8px;padding:14px 16px;background:var(--surface2)}
+  .question-card .q-num{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px;color:var(--accent)}
+  .question-card .q-text{font-size:13px;font-weight:500;color:var(--text);margin-bottom:6px;line-height:1.4}
+  .question-card .q-why{font-size:12px;color:var(--text-muted);line-height:1.5}
+  .hc-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:14px}
+  .hc-card{background:var(--surface2);border-radius:8px;padding:10px 12px;border:1px solid var(--border)}
+  .hc-card .hc-label{font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+  .hc-card .hc-val{font-size:18px;font-weight:600;font-family:'DM Mono',monospace}
+  .erlang-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}
+  .erlang-table th{padding:7px 10px;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);text-align:left}
+  .erlang-table th.right{text-align:right}
+  .erlang-table td{padding:7px 10px;border-bottom:0.5px solid var(--border);font-family:'DM Mono',monospace;font-size:12px}
+  .erlang-table td.label{font-family:'DM Sans',sans-serif}
+  .erlang-table tr:last-child td{border-bottom:none}
+  .gap-pos{color:var(--green);font-weight:600}
+  .gap-neg{color:var(--red);font-weight:600}
+  .footer{text-align:center;padding:2rem;font-size:11px;color:var(--text-faint);letter-spacing:.03em}
+  @media(max-width:600px){.main{padding:1rem}.anomaly-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <span class="top-bar-label">Internal only</span>
+  <div class="top-bar-dot"></div>
+  <span class="top-bar-title">Call Queue Performance — Apr 27–May 26, 2026</span>
+</div>
+
+<div class="header">
+  <div class="header-meta">Internal review</div>
+  <h1>% Calls Answered Within 30 Seconds</h1>
+  <div class="header-sub">Shared queue performance &nbsp;·&nbsp; Apr 27–May 26, 2026 &nbsp;·&nbsp; All averages are call-volume weighted &nbsp;·&nbsp; AHT = 9.37 min (Talk + Hold + Wrap)</div>
+  <div class="header-badge">For internal use only — contains staffing and operational context</div>
+</div>
+
+<div class="main">
+
+  <!-- SCORECARDS -->
+  <div class="sc-group-label">At 30s threshold (SLA target)</div>
+  <div class="scorecards">
+    <div class="sc"><div class="sc-label">Overall avg</div><div class="sc-value amber">90.07%</div><div class="sc-sub">All days, weighted</div></div>
+    <div class="sc"><div class="sc-label">Weekday avg</div><div class="sc-value amber">92.12%</div><div class="sc-sub">Mon–Fri, weighted</div></div>
+    <div class="sc"><div class="sc-label">Weekday slots</div><div class="sc-value amber">198 / 303</div><div class="sc-sub">105 below 95%</div></div>
+    <div class="sc"><div class="sc-label">All-days slots</div><div class="sc-value red">217 / 357</div><div class="sc-sub">140 below 95%</div></div>
+    <div class="sc"><div class="sc-label">Worst day</div><div class="sc-value red">Saturday</div><div class="sc-sub">22.94% weighted avg</div></div>
+    <div class="sc"><div class="sc-label">Target</div><div class="sc-value" style="color:var(--text)">95.00%</div><div class="sc-sub">Shared SLA</div></div>
+  </div>
+
+  <div class="sc-group-label">At 60s threshold (binary SLA gap analysis)</div>
+  <div class="scorecards">
+    <div class="sc"><div class="sc-label">Overall avg</div><div class="sc-value amber">94.99%</div><div class="sc-sub">All days, weighted</div></div>
+    <div class="sc"><div class="sc-label">Weekday avg</div><div class="sc-value green">97.07%</div><div class="sc-sub">Mon–Fri, weighted</div></div>
+    <div class="sc"><div class="sc-label">Weekday slots</div><div class="sc-value green">250 / 303</div><div class="sc-sub">53 below 95%</div></div>
+    <div class="sc"><div class="sc-label">All-days slots</div><div class="sc-value amber">273 / 357</div><div class="sc-sub">84 below 95%</div></div>
+    <div class="sc"><div class="sc-label">30s→60s gap</div><div class="sc-value blue">4.92%</div><div class="sc-sub">Calls answered 31–60s</div></div>
+    <div class="sc"><div class="sc-label">Weekday slots recovered</div><div class="sc-value green">52 slots</div><div class="sc-sub">answered 31–60s</div></div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('heatmap')">Heatmap</button>
+    <button class="tab-btn" onclick="switchTab('hourly')">By hour</button>
+    <button class="tab-btn" onclick="switchTab('daily')">By day</button>
+    <button class="tab-btn" onclick="switchTab('timeline')">Timeline</button>
+    <button class="tab-btn" onclick="switchTab('hcvol')">HC vs Volume</button>
+    <button class="tab-btn" onclick="switchTab('erlang')">Optimal HC</button>
+    <button class="tab-btn" onclick="switchTab('misses')">Miss log</button>
+  </div>
+
+  <div class="tab-content active" id="tab-heatmap">
+    <div class="insight">Worst weekday hour: <strong>6am</strong> (~78% at 30s, ~86% at 60s) &nbsp;·&nbsp; Worst weekday: <strong>Monday</strong> &nbsp;·&nbsp; May 16 &amp; May 23 show full-day anomalies</div>
+    <div class="toggle-group">
+      <button class="toggle-btn active" id="hm-t-30" onclick="setHeatmapThreshold(30)">30s view</button>
+      <button class="toggle-btn" id="hm-t-60" onclick="setHeatmapThreshold(60)">60s view</button>
+    </div>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--green)"></span>≥95% on target</span>
+      <span><span class="sw" style="background:var(--amber)"></span>80–94% warning</span>
+      <span><span class="sw" style="background:var(--red)"></span>&lt;80% critical</span>
+      <span><span class="sw" style="background:#e2e0d8"></span>No data</span>
+    </div>
+    <div class="heatmap-wrap" id="heatmap-container"></div>
+    <p class="note">⭐ = lost agent start time (PST). Toggle between 30s and 60s to see how many slots recover when measured at 60 seconds.</p>
+  </div>
+
+  <div class="tab-content" id="tab-hourly">
+    <div class="chart-filter">
+      <label>Day filter:</label>
+      <select id="hourly-filter" onchange="renderHourlyChart()">
+        <option value="all">All days</option>
+        <option value="weekday">Weekdays only</option>
+        <option value="weekend">Weekends only</option>
+      </select>
+    </div>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--blue)"></span>% within 30s</span>
+      <span><span class="sw" style="background:#9FE1CB"></span>% within 60s</span>
+    </div>
+    <div class="chart-outer" style="height:300px"><canvas id="hourlyChart" role="img" aria-label="Average % calls within 30s and 60s by hour">Average % calls within 30s and 60s by hour of day.</canvas></div>
+    <p class="note">The gap between the 30s and 60s bars at each hour represents calls answered between 31–60 seconds. 6–8am shows the largest gaps, suggesting those calls are being answered but just past the 30s threshold.</p>
+  </div>
+
+  <div class="tab-content" id="tab-daily">
+    <div class="legend">
+      <span><span class="sw" style="background:var(--blue)"></span>% within 30s</span>
+      <span><span class="sw" style="background:#9FE1CB"></span>% within 60s</span>
+    </div>
+    <div class="chart-outer" style="height:280px"><canvas id="dailyChart" role="img" aria-label="Average % calls within 30s and 60s by day of week">Average % calls within 30s and 60s by day of week.</canvas></div>
+    <p class="note">Weekday avg at 60s is 97.07% — above the 95% target. This means most weekday misses at 30s are calls answered within the minute, not calls going unanswered.</p>
+  </div>
+
+  <div class="tab-content" id="tab-timeline">
+    <div class="chart-filter">
+      <label>Hour filter:</label>
+      <select id="hour-filter" onchange="renderTimeline()">
+        <option value="all">All hours combined</option>
+        <option value="6">6am only</option>
+        <option value="7">7am only</option>
+        <option value="8">8am only</option>
+        <option value="9">9am only</option>
+        <option value="13">1pm only</option>
+      </select>
+    </div>
+    <div class="chart-outer" style="height:280px"><canvas id="timelineChart" role="img" aria-label="Daily % calls within 30s over time">Daily % calls within 30s, Apr 27 to May 26 2026.</canvas></div>
+    <p class="note">May 16 and May 23 show near-zero % across all hours. Use the hour filter to isolate specific time windows.</p>
+  </div>
+
+  <div class="tab-content" id="tab-hcvol">
+    <div class="insight">4am–6am had only 3 staffed agents throughout the entire period — this gap existed before and after 5/11 and is a structural coverage issue. Client staffing data for the shared queue is not reflected here. HC shown is scheduled — not adjusted for shrinkage.</div>
+    <div class="toggle-group">
+      <button class="toggle-btn active" id="toggle-before" onclick="setHCPeriod('before')">Before 5/11 (29 agents)</button>
+      <button class="toggle-btn" id="toggle-after" onclick="setHCPeriod('after')">After 5/11 (25 agents)</button>
+      <button class="toggle-btn" id="toggle-both" onclick="setHCPeriod('both')">Compare both</button>
+    </div>
+    <div class="hc-summary" id="hc-summary"></div>
+    <div class="chart-outer" style="height:320px"><canvas id="hcvolChart" role="img" aria-label="Staffed headcount versus call volume by hour PST">Staffed headcount versus call volume by hour PST.</canvas></div>
+    <p class="note">Bars = scheduled HC (our team only — client HC unknown). Line = avg call volume per hour. Scheduled HC, not adjusted for shrinkage or attendance.</p>
+  </div>
+
+  <div class="tab-content" id="tab-erlang">
+    <div class="insight blue"><strong>Erlang C model:</strong> Based on AHT of 9.37 min (Talk + Hold + Wrap) and avg call volume per hour, the theoretical minimum agents needed to hit 95% within 30s is 5–6 during peak hours. With 25 scheduled agents, the data suggests the issue is likely the 20s round-robin ring time and/or IVR timing — not overall headcount. This analysis uses the full shared queue volume; actual required HC per team would be proportional to each team's share of calls.</div>
+    <div class="chart-outer" style="height:300px"><canvas id="erlangChart" role="img" aria-label="Optimal HC versus scheduled HC per hour">Optimal required HC vs scheduled HC per hour based on Erlang C model.</canvas></div>
+    <div style="overflow-x:auto;margin-top:14px">
+      <table class="erlang-table">
+        <thead><tr>
+          <th>Hour (PST)</th>
+          <th class="right">Avg calls/hr</th>
+          <th class="right">Erlangs</th>
+          <th class="right">Optimal HC</th>
+          <th class="right">Scheduled HC</th>
+          <th class="right">Surplus / Gap</th>
+        </tr></thead>
+        <tbody id="erlang-tbody"></tbody>
+      </table>
+    </div>
+    <p class="note">Optimal HC = minimum agents needed to achieve 95% of calls answered within 30s, per Erlang C queuing model. Scheduled HC shown is post-5/11 (25 agents). Does not account for shrinkage — actual required HC in practice would be higher.</p>
+  </div>
+
+  <div class="tab-content" id="tab-misses">
+    <div class="chart-filter">
+      <select id="miss-filter" onchange="renderMissLog()">
+        <option value="all">All misses (30s)</option>
+        <option value="critical">Critical (&lt;50%)</option>
+        <option value="warning">Warning (50–94%)</option>
+      </select>
+    </div>
+    <div class="miss-table-wrap" id="miss-table"></div>
+  </div>
+
+  <!-- BINARY SLA NOTE -->
+  <div class="section" style="margin-top:1rem">
+    <div class="section-head"><h2>Binary SLA — the 30s pass/fail problem</h2></div>
+    <div class="section-body">
+      <div class="insight green">Weekday % within 60s is <strong>97.07%</strong> — above the 95% target. This means the majority of weekday SLA misses are calls answered between 31–60 seconds, not calls going unanswered. 52 weekday slots that fail at 30s pass at 60s.</div>
+      <p style="font-size:13px;color:var(--text-muted);line-height:1.7">The current SLA metric is binary — a call answered at 32 seconds counts as the same miss as a call that rang for 5 minutes. This means the % within 30s figure may overstate the true severity of the performance gap. The 30s vs 60s comparison shows that most misses are late answers, not unanswered calls. This is particularly relevant to the open question about when the 30s timer starts — if IVR time or handoff delay is consuming part of the window, calls may be reaching agents with only 10–15 seconds remaining, making the 30s threshold structurally difficult to meet regardless of staffing.</p>
+    </div>
+  </div>
+
+  <!-- ANOMALIES -->
+  <div class="section">
+    <div class="section-head"><h2>Dates requiring investigation</h2></div>
+    <div class="section-body">
+      <div class="anomaly-grid">
+        <div class="anomaly-card">
+          <div class="a-date">May 16, 2026 (Sat)</div>
+          <div class="a-detail">0% answered within 30s from 10am–1pm despite 26 calls recorded. Pattern suggests a routing or availability failure — not a low-volume anomaly.</div>
+        </div>
+        <div class="anomaly-card">
+          <div class="a-date">May 23, 2026 (Sat)</div>
+          <div class="a-detail">0% answered within 30s across all recorded hours (6am–1pm), 41 total calls. Full-day zero performance — cause unknown pending client response.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STAFFING -->
+  <div class="section">
+    <div class="section-head"><h2>Staffing context</h2></div>
+    <div class="section-body">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">4 agents were terminated on 5/11/2026, reducing the team from 29 to 25. Their PST shift times align with the worst-performing hours. HC figures are scheduled only — not adjusted for shrinkage.</p>
+      <div class="staffing-row">
+        <div class="staff-card"><div class="s-time">9:00 AM PST</div><div class="s-label">Hailee Kelly — terminated 5/11</div></div>
+        <div class="staff-card"><div class="s-time">8:00 AM PST</div><div class="s-label">Jazzmine Rhines — terminated 5/11</div></div>
+        <div class="staff-card"><div class="s-time">8:00 AM PST</div><div class="s-label">Nikki Cole — terminated 5/11</div></div>
+        <div class="staff-card"><div class="s-time">8:00 AM PST</div><div class="s-label">Zahirah Gilkey — terminated 5/11</div></div>
+      </div>
+      <div class="routing-box"><strong>Round-robin ring time impact:</strong> The queue rings each agent for 20 seconds before moving on. If the 30s timer starts at queue entry, one no-answer uses 67% of the SLA window. The Erlang C model shows only 5–6 agents are theoretically needed to hit 95% at 30s given current call volumes — suggesting the ring time and IVR timing may be more impactful than overall headcount.</div>
+    </div>
+  </div>
+
+  <!-- OPEN QUESTIONS -->
+  <div class="section">
+    <div class="section-head"><h2>Open questions — pending client response</h2></div>
+    <div class="section-body">
+      <div class="questions-grid">
+        <div class="question-card">
+          <div class="q-num">Question 1 &nbsp;·&nbsp; SLA definition</div>
+          <div class="q-text">When does the 30-second timer start?</div>
+          <div class="q-why">The 30s vs 60s gap (4.92% overall, 4.95% weekdays) suggests many calls are being answered just past 30s. If the timer starts at IVR entry, the effective agent window may be 10–20 seconds — making the threshold structurally difficult to meet.</div>
+        </div>
+        <div class="question-card">
+          <div class="q-num">Question 2 &nbsp;·&nbsp; IVR gap</div>
+          <div class="q-text">Is there a delay between a call leaving the IVR and entering the agent queue?</div>
+          <div class="q-why">Even a few seconds of handoff time compresses the window. Combined with a 20s ring time per agent, the math may make 95% within 30s nearly impossible without routing changes.</div>
+        </div>
+        <div class="question-card">
+          <div class="q-num">Question 3 &nbsp;·&nbsp; Client staffing</div>
+          <div class="q-text">How is the client staffed on their side, particularly 6–9am and weekends?</div>
+          <div class="q-why">Shared queue — client HC is unknown. The Erlang C model covers total queue volume. Without knowing the split we cannot isolate our team's contribution.</div>
+        </div>
+        <div class="question-card">
+          <div class="q-num">Question 4 &nbsp;·&nbsp; Anomaly dates</div>
+          <div class="q-text">What caused the full-day 0% on May 16 and May 23?</div>
+          <div class="q-why">0% across all hours with real call volume is not a staffing issue. These dates should be excluded from any performance assessment until explained.</div>
+        </div>
+        <div class="question-card">
+          <div class="q-num">Question 5 &nbsp;·&nbsp; Routing config</div>
+          <div class="q-text">Is the round-robin configuration optimal for a 30s SLA?</div>
+          <div class="q-why">At 20s ring time, one no-answer consumes 67% of the window. The Erlang C model shows theoretical optimal HC of 5–6 agents at peak — far below current scheduled HC — suggesting routing efficiency may be the primary lever.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">Call Queue Performance — Internal &nbsp;·&nbsp; Apr 27–May 26, 2026 &nbsp;·&nbsp; AHT: 9.37 min (Talk + Hold + Wrap) &nbsp;·&nbsp; HC is scheduled only, not adjusted for shrinkage &nbsp;·&nbsp; Generated May 27, 2026</div>
+
+<script>
+const RAW_HEATMAP_30=[
+  {hour:4,day:'Sunday',pct:null},{hour:4,day:'Monday',pct:1},{hour:4,day:'Tuesday',pct:0.75},{hour:4,day:'Wednesday',pct:1},{hour:4,day:'Thursday',pct:1},{hour:4,day:'Friday',pct:1},{hour:4,day:'Saturday',pct:null},
+  {hour:5,day:'Sunday',pct:null},{hour:5,day:'Monday',pct:0.870968},{hour:5,day:'Tuesday',pct:0.953488},{hour:5,day:'Wednesday',pct:0.916667},{hour:5,day:'Thursday',pct:1},{hour:5,day:'Friday',pct:0.904762},{hour:5,day:'Saturday',pct:null},
+  {hour:6,day:'Sunday',pct:0.666667},{hour:6,day:'Monday',pct:0.75},{hour:6,day:'Tuesday',pct:0.830189},{hour:6,day:'Wednesday',pct:0.75},{hour:6,day:'Thursday',pct:0.966102},{hour:6,day:'Friday',pct:0.75},{hour:6,day:'Saturday',pct:0.1875},
+  {hour:7,day:'Sunday',pct:0.888889},{hour:7,day:'Monday',pct:0.737374},{hour:7,day:'Tuesday',pct:0.811765},{hour:7,day:'Wednesday',pct:0.975},{hour:7,day:'Thursday',pct:0.924242},{hour:7,day:'Friday',pct:0.878788},{hour:7,day:'Saturday',pct:0.272727},
+  {hour:8,day:'Sunday',pct:0.75},{hour:8,day:'Monday',pct:0.902439},{hour:8,day:'Tuesday',pct:0.851064},{hour:8,day:'Wednesday',pct:0.9},{hour:8,day:'Thursday',pct:0.974684},{hour:8,day:'Friday',pct:0.970149},{hour:8,day:'Saturday',pct:0.466667},
+  {hour:9,day:'Sunday',pct:1},{hour:9,day:'Monday',pct:0.987654},{hour:9,day:'Tuesday',pct:0.916667},{hour:9,day:'Wednesday',pct:0.826667},{hour:9,day:'Thursday',pct:0.87234},{hour:9,day:'Friday',pct:0.98},{hour:9,day:'Saturday',pct:0.153846},
+  {hour:10,day:'Sunday',pct:0.333333},{hour:10,day:'Monday',pct:1},{hour:10,day:'Tuesday',pct:0.962963},{hour:10,day:'Wednesday',pct:1},{hour:10,day:'Thursday',pct:0.935065},{hour:10,day:'Friday',pct:0.979592},{hour:10,day:'Saturday',pct:0.071429},
+  {hour:11,day:'Sunday',pct:0.857143},{hour:11,day:'Monday',pct:0.967742},{hour:11,day:'Tuesday',pct:0.930556},{hour:11,day:'Wednesday',pct:0.984375},{hour:11,day:'Thursday',pct:0.980392},{hour:11,day:'Friday',pct:0.973333},{hour:11,day:'Saturday',pct:0.111111},
+  {hour:12,day:'Sunday',pct:0.666667},{hour:12,day:'Monday',pct:0.964286},{hour:12,day:'Tuesday',pct:0.957895},{hour:12,day:'Wednesday',pct:0.964706},{hour:12,day:'Thursday',pct:0.907895},{hour:12,day:'Friday',pct:1},{hour:12,day:'Saturday',pct:0.285714},
+  {hour:13,day:'Sunday',pct:0.75},{hour:13,day:'Monday',pct:0.971963},{hour:13,day:'Tuesday',pct:0.980952},{hour:13,day:'Wednesday',pct:0.791209},{hour:13,day:'Thursday',pct:0.932039},{hour:13,day:'Friday',pct:0.971429},{hour:13,day:'Saturday',pct:0.230769},
+  {hour:14,day:'Sunday',pct:null},{hour:14,day:'Monday',pct:0.986486},{hour:14,day:'Tuesday',pct:0.920455},{hour:14,day:'Wednesday',pct:1},{hour:14,day:'Thursday',pct:0.863636},{hour:14,day:'Friday',pct:0.947368},{hour:14,day:'Saturday',pct:null},
+  {hour:15,day:'Sunday',pct:null},{hour:15,day:'Monday',pct:0.964286},{hour:15,day:'Tuesday',pct:0.826087},{hour:15,day:'Wednesday',pct:0.977778},{hour:15,day:'Thursday',pct:1},{hour:15,day:'Friday',pct:0.947368},{hour:15,day:'Saturday',pct:null},
+  {hour:16,day:'Sunday',pct:null},{hour:16,day:'Monday',pct:1},{hour:16,day:'Tuesday',pct:0.851852},{hour:16,day:'Wednesday',pct:0.88},{hour:16,day:'Thursday',pct:1},{hour:16,day:'Friday',pct:0.692308},{hour:16,day:'Saturday',pct:null},
+  {hour:17,day:'Sunday',pct:null},{hour:17,day:'Monday',pct:1},{hour:17,day:'Tuesday',pct:1},{hour:17,day:'Wednesday',pct:0.9},{hour:17,day:'Thursday',pct:0.866667},{hour:17,day:'Friday',pct:1},{hour:17,day:'Saturday',pct:null},
+];
+
+const RAW_HEATMAP_60=[
+  {hour:4,day:'Sunday',pct:null},{hour:4,day:'Monday',pct:1},{hour:4,day:'Tuesday',pct:1},{hour:4,day:'Wednesday',pct:1},{hour:4,day:'Thursday',pct:1},{hour:4,day:'Friday',pct:1},{hour:4,day:'Saturday',pct:null},
+  {hour:5,day:'Sunday',pct:null},{hour:5,day:'Monday',pct:0.903226},{hour:5,day:'Tuesday',pct:0.953488},{hour:5,day:'Wednesday',pct:0.933333},{hour:5,day:'Thursday',pct:1},{hour:5,day:'Friday',pct:0.904762},{hour:5,day:'Saturday',pct:null},
+  {hour:6,day:'Sunday',pct:0.666667},{hour:6,day:'Monday',pct:0.775},{hour:6,day:'Tuesday',pct:0.905660},{hour:6,day:'Wednesday',pct:0.944444},{hour:6,day:'Thursday',pct:1},{hour:6,day:'Friday',pct:0.863636},{hour:6,day:'Saturday',pct:0.25},
+  {hour:7,day:'Sunday',pct:0.888889},{hour:7,day:'Monday',pct:0.838384},{hour:7,day:'Tuesday',pct:0.976471},{hour:7,day:'Wednesday',pct:0.989899},{hour:7,day:'Thursday',pct:0.969697},{hour:7,day:'Friday',pct:0.939394},{hour:7,day:'Saturday',pct:0.363636},
+  {hour:8,day:'Sunday',pct:0.75},{hour:8,day:'Monday',pct:0.987805},{hour:8,day:'Tuesday',pct:0.978723},{hour:8,day:'Wednesday',pct:0.987342},{hour:8,day:'Thursday',pct:0.987342},{hour:8,day:'Friday',pct:1},{hour:8,day:'Saturday',pct:0.6},
+  {hour:9,day:'Sunday',pct:1},{hour:9,day:'Monday',pct:1},{hour:9,day:'Tuesday',pct:0.986111},{hour:9,day:'Wednesday',pct:0.973333},{hour:9,day:'Thursday',pct:0.957447},{hour:9,day:'Friday',pct:1},{hour:9,day:'Saturday',pct:0.153846},
+  {hour:10,day:'Sunday',pct:0.333333},{hour:10,day:'Monday',pct:1},{hour:10,day:'Tuesday',pct:1},{hour:10,day:'Wednesday',pct:1},{hour:10,day:'Thursday',pct:0.961039},{hour:10,day:'Friday',pct:0.979592},{hour:10,day:'Saturday',pct:0.071429},
+  {hour:11,day:'Sunday',pct:1},{hour:11,day:'Monday',pct:0.978495},{hour:11,day:'Tuesday',pct:0.958333},{hour:11,day:'Wednesday',pct:0.984375},{hour:11,day:'Thursday',pct:1},{hour:11,day:'Friday',pct:0.973333},{hour:11,day:'Saturday',pct:0.111111},
+  {hour:12,day:'Sunday',pct:0.666667},{hour:12,day:'Monday',pct:0.991071},{hour:12,day:'Tuesday',pct:0.978947},{hour:12,day:'Wednesday',pct:1},{hour:12,day:'Thursday',pct:1},{hour:12,day:'Friday',pct:1},{hour:12,day:'Saturday',pct:0.285714},
+  {hour:13,day:'Sunday',pct:1},{hour:13,day:'Monday',pct:0.981308},{hour:13,day:'Tuesday',pct:0.990476},{hour:13,day:'Wednesday',pct:0.967033},{hour:13,day:'Thursday',pct:0.951456},{hour:13,day:'Friday',pct:0.985714},{hour:13,day:'Saturday',pct:0.230769},
+  {hour:14,day:'Sunday',pct:null},{hour:14,day:'Monday',pct:0.986486},{hour:14,day:'Tuesday',pct:0.988636},{hour:14,day:'Wednesday',pct:1},{hour:14,day:'Thursday',pct:0.954545},{hour:14,day:'Friday',pct:0.964912},{hour:14,day:'Saturday',pct:null},
+  {hour:15,day:'Sunday',pct:null},{hour:15,day:'Monday',pct:1},{hour:15,day:'Tuesday',pct:0.978261},{hour:15,day:'Wednesday',pct:1},{hour:15,day:'Thursday',pct:1},{hour:15,day:'Friday',pct:1},{hour:15,day:'Saturday',pct:null},
+  {hour:16,day:'Sunday',pct:null},{hour:16,day:'Monday',pct:1},{hour:16,day:'Tuesday',pct:0.962963},{hour:16,day:'Wednesday',pct:1},{hour:16,day:'Thursday',pct:1},{hour:16,day:'Friday',pct:0.846154},{hour:16,day:'Saturday',pct:null},
+  {hour:17,day:'Sunday',pct:null},{hour:17,day:'Monday',pct:1},{hour:17,day:'Tuesday',pct:1},{hour:17,day:'Wednesday',pct:1},{hour:17,day:'Thursday',pct:1},{hour:17,day:'Friday',pct:1},{hour:17,day:'Saturday',pct:null},
+];
+
+const RAW_TIMELINE=[
+  {date:'2026-04-27',hour:5,calls:7,pct30:0.714286,pct60:0.857143},{date:'2026-04-27',hour:6,calls:17,pct30:0.411765,pct60:0.411765},{date:'2026-04-27',hour:7,calls:23,pct30:0.73913,pct60:0.869565},{date:'2026-04-27',hour:8,calls:16,pct30:1,pct60:1},{date:'2026-04-27',hour:9,calls:22,pct30:1,pct60:1},{date:'2026-04-27',hour:10,calls:14,pct30:1,pct60:1},{date:'2026-04-27',hour:11,calls:27,pct30:1,pct60:1},{date:'2026-04-27',hour:12,calls:29,pct30:0.965517,pct60:1},{date:'2026-04-27',hour:13,calls:28,pct30:1,pct60:1},{date:'2026-04-27',hour:14,calls:19,pct30:1,pct60:1},{date:'2026-04-27',hour:15,calls:17,pct30:0.941176,pct60:1},{date:'2026-04-27',hour:16,calls:4,pct30:1,pct60:1},{date:'2026-04-27',hour:17,calls:4,pct30:1,pct60:1},
+  {date:'2026-04-28',hour:4,calls:1,pct30:1,pct60:1},{date:'2026-04-28',hour:5,calls:6,pct30:1,pct60:1},{date:'2026-04-28',hour:6,calls:13,pct30:0.846154,pct60:0.846154},{date:'2026-04-28',hour:7,calls:16,pct30:1,pct60:1},{date:'2026-04-28',hour:8,calls:19,pct30:1,pct60:1},{date:'2026-04-28',hour:9,calls:6,pct30:0.666667,pct60:0.833333},{date:'2026-04-28',hour:10,calls:10,pct30:0.7,pct60:0.9},{date:'2026-04-28',hour:11,calls:9,pct30:0.777778,pct60:0.888889},{date:'2026-04-28',hour:12,calls:17,pct30:0.882353,pct60:1},{date:'2026-04-28',hour:13,calls:18,pct30:0.944444,pct60:1},{date:'2026-04-28',hour:14,calls:15,pct30:0.733333,pct60:0.866667},{date:'2026-04-28',hour:15,calls:7,pct30:0,pct60:0.285714},{date:'2026-04-28',hour:16,calls:4,pct30:0.25,pct60:0.5},{date:'2026-04-28',hour:17,calls:3,pct30:1,pct60:1},
+  {date:'2026-04-29',hour:4,calls:1,pct30:1,pct60:1},{date:'2026-04-29',hour:5,calls:6,pct30:0.833333,pct60:0.833333},{date:'2026-04-29',hour:6,calls:12,pct30:0.666667,pct60:0.833333},{date:'2026-04-29',hour:7,calls:19,pct30:0.947368,pct60:1},{date:'2026-04-29',hour:8,calls:21,pct30:0.952381,pct60:1},{date:'2026-04-29',hour:9,calls:17,pct30:0.823529,pct60:0.941176},{date:'2026-04-29',hour:10,calls:21,pct30:1,pct60:1},{date:'2026-04-29',hour:11,calls:15,pct30:1,pct60:1},{date:'2026-04-29',hour:12,calls:31,pct30:0.903226,pct60:0.967742},{date:'2026-04-29',hour:13,calls:26,pct30:0.884615,pct60:0.961538},{date:'2026-04-29',hour:14,calls:18,pct30:1,pct60:1},{date:'2026-04-29',hour:15,calls:13,pct30:0.923077,pct60:1},{date:'2026-04-29',hour:16,calls:8,pct30:0.625,pct60:0.875},{date:'2026-04-29',hour:17,calls:5,pct30:0.8,pct60:1},
+  {date:'2026-04-30',hour:4,calls:2,pct30:1,pct60:1},{date:'2026-04-30',hour:5,calls:5,pct30:1,pct60:1},{date:'2026-04-30',hour:6,calls:15,pct30:1,pct60:1},{date:'2026-04-30',hour:7,calls:11,pct30:1,pct60:1},{date:'2026-04-30',hour:8,calls:19,pct30:1,pct60:1},{date:'2026-04-30',hour:9,calls:14,pct30:0.857143,pct60:1},{date:'2026-04-30',hour:10,calls:28,pct30:0.928571,pct60:1},{date:'2026-04-30',hour:11,calls:15,pct30:1,pct60:1},{date:'2026-04-30',hour:12,calls:27,pct30:0.777778,pct60:0.888889},{date:'2026-04-30',hour:13,calls:31,pct30:0.935484,pct60:0.967742},{date:'2026-04-30',hour:14,calls:18,pct30:0.777778,pct60:0.944444},{date:'2026-04-30',hour:15,calls:5,pct30:1,pct60:1},{date:'2026-04-30',hour:16,calls:5,pct30:1,pct60:1},{date:'2026-04-30',hour:17,calls:6,pct30:0.833333,pct60:1},
+  {date:'2026-05-01',hour:4,calls:3,pct30:1,pct60:1},{date:'2026-05-01',hour:5,calls:8,pct30:0.75,pct60:0.875},{date:'2026-05-01',hour:6,calls:8,pct30:0.375,pct60:0.5},{date:'2026-05-01',hour:7,calls:26,pct30:0.846154,pct60:0.923077},{date:'2026-05-01',hour:8,calls:23,pct30:0.913043,pct60:1},{date:'2026-05-01',hour:9,calls:16,pct30:1,pct60:1},{date:'2026-05-01',hour:10,calls:15,pct30:1,pct60:1},{date:'2026-05-01',hour:11,calls:20,pct30:0.9,pct60:1},{date:'2026-05-01',hour:12,calls:13,pct30:1,pct60:1},{date:'2026-05-01',hour:13,calls:15,pct30:1,pct60:1},{date:'2026-05-01',hour:14,calls:18,pct30:0.888889,pct60:1},{date:'2026-05-01',hour:15,calls:5,pct30:1,pct60:1},{date:'2026-05-01',hour:16,calls:4,pct30:1,pct60:1},{date:'2026-05-01',hour:17,calls:3,pct30:1,pct60:1},
+  {date:'2026-05-02',hour:6,calls:2,pct30:0.5,pct60:0.5},{date:'2026-05-02',hour:7,calls:5,pct30:0,pct60:0.4},{date:'2026-05-02',hour:8,calls:2,pct30:0.5,pct60:0.5},{date:'2026-05-02',hour:9,calls:2,pct30:0.5,pct60:0.5},{date:'2026-05-02',hour:10,calls:1,pct30:0,pct60:0},{date:'2026-05-02',hour:12,calls:2,pct30:1,pct60:1},{date:'2026-05-02',hour:13,calls:5,pct30:0.6,pct60:0.6},
+  {date:'2026-05-04',hour:5,calls:8,pct30:0.75,pct60:0.875},{date:'2026-05-04',hour:6,calls:22,pct30:0.954545,pct60:1},{date:'2026-05-04',hour:7,calls:25,pct30:0.44,pct60:0.68},{date:'2026-05-04',hour:8,calls:19,pct30:0.947368,pct60:1},{date:'2026-05-04',hour:9,calls:24,pct30:0.958333,pct60:1},{date:'2026-05-04',hour:10,calls:14,pct30:1,pct60:1},{date:'2026-05-04',hour:11,calls:20,pct30:0.9,pct60:0.95},{date:'2026-05-04',hour:12,calls:28,pct30:0.964286,pct60:1},{date:'2026-05-04',hour:13,calls:33,pct30:0.969697,pct60:1},{date:'2026-05-04',hour:14,calls:20,pct30:0.95,pct60:1},{date:'2026-05-04',hour:15,calls:13,pct30:1,pct60:1},{date:'2026-05-04',hour:16,calls:7,pct30:1,pct60:1},{date:'2026-05-04',hour:17,calls:5,pct30:1,pct60:1},
+  {date:'2026-05-05',hour:5,calls:6,pct30:0.666667,pct60:0.833333},{date:'2026-05-05',hour:6,calls:8,pct30:0.625,pct60:0.875},{date:'2026-05-05',hour:7,calls:16,pct30:1,pct60:1},{date:'2026-05-05',hour:8,calls:19,pct30:0.894737,pct60:1},{date:'2026-05-05',hour:9,calls:16,pct30:0.9375,pct60:1},{date:'2026-05-05',hour:10,calls:20,pct30:1,pct60:1},{date:'2026-05-05',hour:11,calls:14,pct30:0.928571,pct60:1},{date:'2026-05-05',hour:12,calls:23,pct30:0.956522,pct60:1},{date:'2026-05-05',hour:13,calls:24,pct30:0.958333,pct60:1},{date:'2026-05-05',hour:14,calls:24,pct30:1,pct60:1},{date:'2026-05-05',hour:15,calls:18,pct30:0.944444,pct60:1},{date:'2026-05-05',hour:16,calls:7,pct30:0.857143,pct60:1},{date:'2026-05-05',hour:17,calls:3,pct30:1,pct60:1},
+  {date:'2026-05-06',hour:4,calls:2,pct30:1,pct60:1},{date:'2026-05-06',hour:5,calls:8,pct30:0.875,pct60:1},{date:'2026-05-06',hour:6,calls:16,pct30:0.875,pct60:0.9375},{date:'2026-05-06',hour:7,calls:16,pct30:1,pct60:1},{date:'2026-05-06',hour:8,calls:25,pct30:1,pct60:1},{date:'2026-05-06',hour:9,calls:21,pct30:1,pct60:1},{date:'2026-05-06',hour:10,calls:13,pct30:1,pct60:1},{date:'2026-05-06',hour:11,calls:18,pct30:0.944444,pct60:1},{date:'2026-05-06',hour:12,calls:19,pct30:1,pct60:1},{date:'2026-05-06',hour:13,calls:17,pct30:0.941176,pct60:0.941176},{date:'2026-05-06',hour:14,calls:24,pct30:1,pct60:1},{date:'2026-05-06',hour:15,calls:10,pct30:1,pct60:1},{date:'2026-05-06',hour:16,calls:5,pct30:1,pct60:1},
+  {date:'2026-05-07',hour:4,calls:1,pct30:1,pct60:1},{date:'2026-05-07',hour:5,calls:5,pct30:1,pct60:1},{date:'2026-05-07',hour:6,calls:13,pct30:1,pct60:1},{date:'2026-05-07',hour:7,calls:21,pct30:0.952381,pct60:1},{date:'2026-05-07',hour:8,calls:15,pct30:1,pct60:1},{date:'2026-05-07',hour:9,calls:11,pct30:1,pct60:1},{date:'2026-05-07',hour:10,calls:19,pct30:0.894737,pct60:0.947368},{date:'2026-05-07',hour:11,calls:16,pct30:1,pct60:1},{date:'2026-05-07',hour:12,calls:13,pct30:1,pct60:1},{date:'2026-05-07',hour:13,calls:27,pct30:0.925926,pct60:0.962963},{date:'2026-05-07',hour:14,calls:10,pct30:0.8,pct60:0.9},{date:'2026-05-07',hour:15,calls:11,pct30:1,pct60:1},{date:'2026-05-07',hour:16,calls:6,pct30:1,pct60:1},{date:'2026-05-07',hour:17,calls:4,pct30:1,pct60:1},
+  {date:'2026-05-08',hour:5,calls:6,pct30:1,pct60:1},{date:'2026-05-08',hour:6,calls:5,pct30:0.8,pct60:0.8},{date:'2026-05-08',hour:7,calls:15,pct30:0.866667,pct60:0.933333},{date:'2026-05-08',hour:8,calls:15,pct30:1,pct60:1},{date:'2026-05-08',hour:9,calls:7,pct30:1,pct60:1},{date:'2026-05-08',hour:10,calls:6,pct30:1,pct60:1},{date:'2026-05-08',hour:11,calls:14,pct30:1,pct60:1},{date:'2026-05-08',hour:12,calls:20,pct30:1,pct60:1},{date:'2026-05-08',hour:13,calls:16,pct30:0.9375,pct60:1},{date:'2026-05-08',hour:14,calls:18,pct30:1,pct60:1},{date:'2026-05-08',hour:15,calls:7,pct30:0.857143,pct60:1},{date:'2026-05-08',hour:16,calls:1,pct30:1,pct60:1},
+  {date:'2026-05-09',hour:6,calls:7,pct30:0.285714,pct60:0.285714},{date:'2026-05-09',hour:7,calls:4,pct30:0.5,pct60:0.5},{date:'2026-05-09',hour:8,calls:2,pct30:1,pct60:1},{date:'2026-05-09',hour:10,calls:2,pct30:0.5,pct60:0.5},{date:'2026-05-09',hour:11,calls:1,pct30:1,pct60:1},{date:'2026-05-09',hour:13,calls:1,pct30:0,pct60:0},
+  {date:'2026-05-11',hour:4,calls:1,pct30:1,pct60:1},{date:'2026-05-11',hour:5,calls:6,pct30:1,pct60:1},{date:'2026-05-11',hour:6,calls:17,pct30:0.705882,pct60:0.882353},{date:'2026-05-11',hour:7,calls:25,pct30:0.96,pct60:1},{date:'2026-05-11',hour:8,calls:15,pct30:1,pct60:1},{date:'2026-05-11',hour:9,calls:8,pct30:1,pct60:1},{date:'2026-05-11',hour:10,calls:17,pct30:1,pct60:1},{date:'2026-05-11',hour:11,calls:18,pct30:1,pct60:1},{date:'2026-05-11',hour:12,calls:23,pct30:0.913043,pct60:0.956522},{date:'2026-05-11',hour:13,calls:21,pct30:0.904762,pct60:0.952381},{date:'2026-05-11',hour:14,calls:11,pct30:1,pct60:1},{date:'2026-05-11',hour:15,calls:8,pct30:1,pct60:1},{date:'2026-05-11',hour:16,calls:8,pct30:1,pct60:1},{date:'2026-05-11',hour:17,calls:5,pct30:1,pct60:1},
+  {date:'2026-05-12',hour:4,calls:1,pct30:1,pct60:1},{date:'2026-05-12',hour:5,calls:8,pct30:1,pct60:1},{date:'2026-05-12',hour:6,calls:10,pct30:0.9,pct60:1},{date:'2026-05-12',hour:7,calls:14,pct30:0.928571,pct60:1},{date:'2026-05-12',hour:8,calls:20,pct30:0.95,pct60:1},{date:'2026-05-12',hour:9,calls:13,pct30:0.769231,pct60:0.923077},{date:'2026-05-12',hour:10,calls:15,pct30:1,pct60:1},{date:'2026-05-12',hour:11,calls:15,pct30:1,pct60:1},{date:'2026-05-12',hour:12,calls:18,pct30:1,pct60:1},{date:'2026-05-12',hour:13,calls:20,pct30:1,pct60:1},{date:'2026-05-12',hour:14,calls:20,pct30:1,pct60:1},{date:'2026-05-12',hour:15,calls:6,pct30:1,pct60:1},{date:'2026-05-12',hour:16,calls:5,pct30:1,pct60:1},{date:'2026-05-12',hour:17,calls:3,pct30:1,pct60:1},
+  {date:'2026-05-13',hour:4,calls:1,pct30:1,pct60:1},{date:'2026-05-13',hour:5,calls:13,pct30:0.923077,pct60:1},{date:'2026-05-13',hour:6,calls:19,pct30:0.526316,pct60:0.736842},{date:'2026-05-13',hour:7,calls:19,pct30:1,pct60:1},{date:'2026-05-13',hour:8,calls:11,pct30:0.727273,pct60:0.909091},{date:'2026-05-13',hour:9,calls:18,pct30:0.444444,pct60:0.722222},{date:'2026-05-13',hour:10,calls:12,pct30:1,pct60:1},{date:'2026-05-13',hour:11,calls:15,pct30:1,pct60:1},{date:'2026-05-13',hour:12,calls:20,pct30:1,pct60:1},{date:'2026-05-13',hour:13,calls:25,pct30:0.48,pct60:0.72},{date:'2026-05-13',hour:14,calls:10,pct30:1,pct60:1},{date:'2026-05-13',hour:15,calls:10,pct30:1,pct60:1},{date:'2026-05-13',hour:16,calls:6,pct30:1,pct60:1},{date:'2026-05-13',hour:17,calls:3,pct30:1,pct60:1},
+  {date:'2026-05-14',hour:4,calls:1,pct30:1,pct60:1},{date:'2026-05-14',hour:5,calls:6,pct30:1,pct60:1},{date:'2026-05-14',hour:6,calls:17,pct30:0.882353,pct60:0.941176},{date:'2026-05-14',hour:7,calls:15,pct30:0.933333,pct60:1},{date:'2026-05-14',hour:8,calls:21,pct30:1,pct60:1},{date:'2026-05-14',hour:9,calls:12,pct30:0.916667,pct60:1},{date:'2026-05-14',hour:10,calls:16,pct30:0.9375,pct60:1},{date:'2026-05-14',hour:11,calls:9,pct30:1,pct60:1},{date:'2026-05-14',hour:12,calls:18,pct30:1,pct60:1},{date:'2026-05-14',hour:13,calls:18,pct30:0.888889,pct60:0.944444},{date:'2026-05-14',hour:14,calls:10,pct30:1,pct60:1},{date:'2026-05-14',hour:15,calls:10,pct30:1,pct60:1},{date:'2026-05-14',hour:16,calls:5,pct30:1,pct60:1},{date:'2026-05-14',hour:17,calls:2,pct30:1,pct60:1},
+  {date:'2026-05-15',hour:5,calls:5,pct30:1,pct60:1},{date:'2026-05-15',hour:6,calls:13,pct30:0.769231,pct60:0.923077},{date:'2026-05-15',hour:7,calls:9,pct30:1,pct60:1},{date:'2026-05-15',hour:8,calls:19,pct30:1,pct60:1},{date:'2026-05-15',hour:9,calls:15,pct30:1,pct60:1},{date:'2026-05-15',hour:10,calls:15,pct30:1,pct60:1},{date:'2026-05-15',hour:11,calls:15,pct30:1,pct60:1},{date:'2026-05-15',hour:12,calls:13,pct30:1,pct60:1},{date:'2026-05-15',hour:13,calls:22,pct30:1,pct60:1},{date:'2026-05-15',hour:14,calls:15,pct30:1,pct60:1},{date:'2026-05-15',hour:15,calls:5,pct30:1,pct60:1},{date:'2026-05-15',hour:16,calls:6,pct30:0.333333,pct60:0.666667},{date:'2026-05-15',hour:17,calls:1,pct30:1,pct60:1},
+  {date:'2026-05-16',hour:7,calls:6,pct30:0.666667,pct60:0.666667},{date:'2026-05-16',hour:8,calls:5,pct30:0.8,pct60:0.8},{date:'2026-05-16',hour:9,calls:2,pct30:0.5,pct60:0.5},{date:'2026-05-16',hour:10,calls:4,pct30:0,pct60:0},{date:'2026-05-16',hour:11,calls:7,pct30:0,pct60:0},{date:'2026-05-16',hour:12,calls:3,pct30:0,pct60:0},{date:'2026-05-16',hour:13,calls:5,pct30:0,pct60:0},
+  {date:'2026-05-18',hour:4,calls:2,pct30:1,pct60:1},{date:'2026-05-18',hour:5,calls:8,pct30:1,pct60:1},{date:'2026-05-18',hour:6,calls:19,pct30:0.789474,pct60:0.894737},{date:'2026-05-18',hour:7,calls:22,pct30:0.772727,pct60:0.909091},{date:'2026-05-18',hour:8,calls:18,pct30:0.611111,pct60:0.944444},{date:'2026-05-18',hour:9,calls:21,pct30:1,pct60:1},{date:'2026-05-18',hour:10,calls:23,pct30:1,pct60:1},{date:'2026-05-18',hour:11,calls:24,pct30:0.958333,pct60:1},{date:'2026-05-18',hour:12,calls:30,pct30:1,pct60:1},{date:'2026-05-18',hour:13,calls:24,pct30:1,pct60:1},{date:'2026-05-18',hour:14,calls:22,pct30:1,pct60:1},{date:'2026-05-18',hour:15,calls:17,pct30:0.941176,pct60:1},{date:'2026-05-18',hour:16,calls:3,pct30:1,pct60:1},{date:'2026-05-18',hour:17,calls:2,pct30:1,pct60:1},
+  {date:'2026-05-19',hour:4,calls:2,pct30:0.5,pct60:0.5},{date:'2026-05-19',hour:5,calls:11,pct30:1,pct60:1},{date:'2026-05-19',hour:6,calls:11,pct30:0.818182,pct60:0.909091},{date:'2026-05-19',hour:7,calls:14,pct30:0.571429,pct60:0.857143},{date:'2026-05-19',hour:8,calls:14,pct30:0.285714,pct60:0.714286},{date:'2026-05-19',hour:9,calls:19,pct30:1,pct60:1},{date:'2026-05-19',hour:10,calls:18,pct30:1,pct60:1},{date:'2026-05-19',hour:11,calls:13,pct30:0.923077,pct60:1},{date:'2026-05-19',hour:12,calls:11,pct30:1,pct60:1},{date:'2026-05-19',hour:13,calls:21,pct30:1,pct60:1},{date:'2026-05-19',hour:14,calls:16,pct30:0.9375,pct60:1},{date:'2026-05-19',hour:15,calls:9,pct30:1,pct60:1},{date:'2026-05-19',hour:16,calls:3,pct30:1,pct60:1},{date:'2026-05-19',hour:17,calls:2,pct30:1,pct60:1},
+  {date:'2026-05-20',hour:5,calls:9,pct30:1,pct60:1},{date:'2026-05-20',hour:6,calls:25,pct30:0.88,pct60:0.96},{date:'2026-05-20',hour:7,calls:26,pct30:0.961538,pct60:1},{date:'2026-05-20',hour:8,calls:13,pct30:0.769231,pct60:0.923077},{date:'2026-05-20',hour:9,calls:19,pct30:1,pct60:1},{date:'2026-05-20',hour:10,calls:16,pct30:1,pct60:1},{date:'2026-05-20',hour:11,calls:16,pct30:1,pct60:1},{date:'2026-05-20',hour:12,calls:15,pct30:1,pct60:1},{date:'2026-05-20',hour:13,calls:23,pct30:0.913043,pct60:1},{date:'2026-05-20',hour:14,calls:18,pct30:1,pct60:1},{date:'2026-05-20',hour:15,calls:12,pct30:1,pct60:1},{date:'2026-05-20',hour:16,calls:6,pct30:1,pct60:1},{date:'2026-05-20',hour:17,calls:2,pct30:1,pct60:1},
+  {date:'2026-05-21',hour:4,calls:1,pct30:1,pct60:1},{date:'2026-05-21',hour:5,calls:9,pct30:1,pct60:1},{date:'2026-05-21',hour:6,calls:14,pct30:1,pct60:1},{date:'2026-05-21',hour:7,calls:19,pct30:0.842105,pct60:0.947368},{date:'2026-05-21',hour:8,calls:24,pct30:0.916667,pct60:1},{date:'2026-05-21',hour:9,calls:10,pct30:0.7,pct60:0.9},{date:'2026-05-21',hour:10,calls:14,pct30:1,pct60:1},{date:'2026-05-21',hour:11,calls:11,pct30:0.909091,pct60:1},{date:'2026-05-21',hour:12,calls:18,pct30:0.944444,pct60:1},{date:'2026-05-21',hour:13,calls:27,pct30:0.962963,pct60:1},{date:'2026-05-21',hour:14,calls:6,pct30:1,pct60:1},{date:'2026-05-21',hour:15,calls:11,pct30:1,pct60:1},{date:'2026-05-21',hour:16,calls:3,pct30:1,pct60:1},{date:'2026-05-21',hour:17,calls:3,pct30:0.666667,pct60:1},
+  {date:'2026-05-22',hour:4,calls:1,pct30:1,pct60:1},{date:'2026-05-22',hour:5,calls:2,pct30:1,pct60:1},{date:'2026-05-22',hour:6,calls:18,pct30:0.888889,pct60:0.944444},{date:'2026-05-22',hour:7,calls:16,pct30:0.875,pct60:0.9375},{date:'2026-05-22',hour:8,calls:10,pct30:1,pct60:1},{date:'2026-05-22',hour:9,calls:12,pct30:0.916667,pct60:1},{date:'2026-05-22',hour:10,calls:13,pct30:0.923077,pct60:1},{date:'2026-05-22',hour:11,calls:26,pct30:1,pct60:1},{date:'2026-05-22',hour:12,calls:19,pct30:1,pct60:1},{date:'2026-05-22',hour:13,calls:17,pct30:0.941176,pct60:1},{date:'2026-05-22',hour:14,calls:6,pct30:0.833333,pct60:1},{date:'2026-05-22',hour:15,calls:2,pct30:1,pct60:1},{date:'2026-05-22',hour:16,calls:2,pct30:1,pct60:1},{date:'2026-05-22',hour:17,calls:3,pct30:1,pct60:1},
+  {date:'2026-05-23',hour:6,calls:7,pct30:0,pct60:0},{date:'2026-05-23',hour:7,calls:7,pct30:0,pct60:0},{date:'2026-05-23',hour:8,calls:6,pct30:0,pct60:0},{date:'2026-05-23',hour:9,calls:9,pct30:0,pct60:0},{date:'2026-05-23',hour:10,calls:7,pct30:0,pct60:0},{date:'2026-05-23',hour:11,calls:1,pct30:0,pct60:0},{date:'2026-05-23',hour:12,calls:2,pct30:0,pct60:0},{date:'2026-05-23',hour:13,calls:2,pct30:0,pct60:0},
+  {date:'2026-05-26',hour:5,calls:12,pct30:1,pct60:1},{date:'2026-05-26',hour:6,calls:11,pct30:0.909091,pct60:0.909091},{date:'2026-05-26',hour:7,calls:25,pct30:0.64,pct60:0.76},{date:'2026-05-26',hour:8,calls:22,pct30:0.954545,pct60:1},{date:'2026-05-26',hour:9,calls:18,pct30:1,pct60:1},{date:'2026-05-26',hour:10,calls:18,pct30:1,pct60:1},{date:'2026-05-26',hour:11,calls:21,pct30:0.952381,pct60:1},{date:'2026-05-26',hour:12,calls:26,pct30:0.961538,pct60:1},{date:'2026-05-26',hour:13,calls:22,pct30:1,pct60:1},{date:'2026-05-26',hour:14,calls:13,pct30:0.846154,pct60:0.923077},{date:'2026-05-26',hour:15,calls:6,pct30:1,pct60:1},{date:'2026-05-26',hour:16,calls:8,pct30:1,pct60:1},{date:'2026-05-26',hour:17,calls:1,pct30:1,pct60:1},
+];
+
+const HC_BEFORE={4:3,5:3,6:3,7:12,8:18,9:23,10:29,11:29,12:29,13:26,14:26,15:26,16:17,17:11,18:6};
+const HC_AFTER={4:3,5:3,6:3,7:12,8:15,9:19,10:25,11:25,12:25,13:22,14:22,15:22,16:13,17:10,18:6};
+const ERLANG_DATA=[
+  {h:4,label:'4am',avgCalls:1.4,erlangs:0.22,optHC:2,schedHC:3},
+  {h:5,label:'5am',avgCalls:7.2,erlangs:1.12,optHC:4,schedHC:3},
+  {h:6,label:'6am',avgCalls:12.1,erlangs:1.89,optHC:5,schedHC:3},
+  {h:7,label:'7am',avgCalls:14.4,erlangs:2.25,optHC:6,schedHC:12},
+  {h:8,label:'8am',avgCalls:13.7,erlangs:2.14,optHC:6,schedHC:15},
+  {h:9,label:'9am',avgCalls:12.4,erlangs:1.94,optHC:5,schedHC:19},
+  {h:10,label:'10am',avgCalls:12.3,erlangs:1.93,optHC:5,schedHC:25},
+  {h:11,label:'11am',avgCalls:13.7,erlangs:2.15,optHC:6,schedHC:25},
+  {h:12,label:'12pm',avgCalls:15.9,erlangs:2.49,optHC:6,schedHC:25},
+  {h:13,label:'1pm',avgCalls:16.4,erlangs:2.57,optHC:6,schedHC:22},
+  {h:14,label:'2pm',avgCalls:15.1,erlangs:2.36,optHC:6,schedHC:22},
+  {h:15,label:'3pm',avgCalls:9.2,erlangs:1.44,optHC:5,schedHC:22},
+  {h:16,label:'4pm',avgCalls:5.0,erlangs:0.79,optHC:3,schedHC:13},
+  {h:17,label:'5pm',avgCalls:3.0,erlangs:0.48,optHC:3,schedHC:10},
+];
+
+const DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const WEEKDAYS=['Monday','Tuesday','Wednesday','Thursday','Friday'];
+const HOURS=[4,5,6,7,8,9,10,11,12,13,14,15,16,17];
+function hl(h){const ap=h<12?'am':'pm';const h12=h>12?h-12:(h===0?12:h);return h12+ap;}
+
+let chartH=null,chartD=null,chartT=null,chartHC=null,chartErl=null;
+let hcPeriod='before';
+let hmThreshold=30;
+
+function switchTab(name){
+  const tabMap={heatmap:'Heatmap',hourly:'By hour',daily:'By day',timeline:'Timeline',hcvol:'HC vs Volume',erlang:'Optimal HC',misses:'Miss log'};
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent===tabMap[name]));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  if(name==='hourly')renderHourlyChart();
+  if(name==='daily')renderDailyChart();
+  if(name==='timeline')renderTimeline();
+  if(name==='hcvol')renderHCVolChart();
+  if(name==='erlang'){renderErlangChart();renderErlangTable();}
+  if(name==='misses')renderMissLog();
+}
+
+function setHeatmapThreshold(t){
+  hmThreshold=t;
+  document.getElementById('hm-t-30').classList.toggle('active',t===30);
+  document.getElementById('hm-t-60').classList.toggle('active',t===60);
+  buildHeatmap();
+}
+
+function buildHeatmap(){
+  const data=hmThreshold===30?RAW_HEATMAP_30:RAW_HEATMAP_60;
+  const STARRED=[4,8,9];
+  let html=`<table><tr><th class="hour-col">Hour</th>`;
+  DAYS.forEach(d=>html+=`<th>${d.slice(0,3)}</th>`);
+  html+='</tr>';
+  HOURS.forEach(h=>{
+    const star=STARRED.includes(h)?'⭐ ':'';
+    html+=`<tr><td class="hour-label${STARRED.includes(h)?' starred':''}">${star}${hl(h)}</td>`;
+    DAYS.forEach(day=>{
+      const e=data.find(x=>x.hour===h&&x.day===day);
+      const v=e?e.pct:null;
+      let cls='no-data',txt='—';
+      if(v!==null){txt=(v*100).toFixed(0)+'%';cls=v>=0.95?'on-target':v>=0.8?'warning':'critical';}
+      html+=`<td class="hm-cell ${cls}">${txt}</td>`;
+    });
+    html+='</tr>';
+  });
+  html+=`</table>`;
+  document.getElementById('heatmap-container').innerHTML=html;
+}
+
+function getHourlyAvgs(filter){
+  const fd=filter==='weekday'?WEEKDAYS:filter==='weekend'?['Saturday','Sunday']:null;
+  return HOURS.map(h=>{
+    const rows30=RAW_HEATMAP_30.filter(e=>e.hour===h&&e.pct!==null&&(!fd||fd.includes(e.day)));
+    const rows60=RAW_HEATMAP_60.filter(e=>e.hour===h&&e.pct!==null&&(!fd||fd.includes(e.day)));
+    const avg30=rows30.length?rows30.reduce((s,d)=>s+d.pct,0)/rows30.length:null;
+    const avg60=rows60.length?rows60.reduce((s,d)=>s+d.pct,0)/rows60.length:null;
+    return{avg30,avg60};
+  });
+}
+
+function renderHourlyChart(){
+  const f=document.getElementById('hourly-filter').value;
+  const avgs=getHourlyAvgs(f);
+  const c30=avgs.map(a=>a.avg30===null?null:parseFloat((a.avg30*100).toFixed(2)));
+  const c60=avgs.map(a=>a.avg60===null?null:parseFloat((a.avg60*100).toFixed(2)));
+  if(chartH)chartH.destroy();
+  chartH=new Chart(document.getElementById('hourlyChart'),{
+    type:'bar',
+    data:{labels:HOURS.map(hl),datasets:[
+      {label:'% within 30s',data:c30,backgroundColor:'rgba(24,95,165,0.8)',borderRadius:3},
+      {label:'% within 60s',data:c60,backgroundColor:'rgba(29,158,117,0.5)',borderRadius:3},
+      {label:'95% target',data:HOURS.map(()=>95),type:'line',borderColor:'#c0392b',borderDash:[5,4],borderWidth:1.5,pointRadius:0,fill:false}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'top',labels:{font:{size:11},boxWidth:10,padding:14}},
+        tooltip:{callbacks:{label:ctx=>ctx.parsed.y!==null?`${ctx.dataset.label}: ${parseFloat(ctx.parsed.y).toFixed(2)}%`:'no data'}}},
+      scales:{y:{min:0,max:105,ticks:{callback:v=>v+'%',font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}},x:{ticks:{font:{size:11}},grid:{display:false}}}}
+  });
+}
+
+function renderDailyChart(){
+  const d30=[{d:'Monday',v:0.9212},{d:'Tuesday',v:0.9076},{d:'Wednesday',v:0.9100},{d:'Thursday',v:0.9388},{d:'Friday',v:0.9390},{d:'Saturday',v:0.2294},{d:'Sunday',v:0.7627}];
+  const d60=[{d:'Monday',v:0.9526},{d:'Tuesday',v:0.9761},{d:'Wednesday',v:0.9811},{d:'Thursday',v:0.9787},{d:'Friday',v:0.9671},{d:'Saturday',v:0.2752},{d:'Sunday',v:0.7966}];
+  if(chartD)chartD.destroy();
+  chartD=new Chart(document.getElementById('dailyChart'),{
+    type:'bar',
+    data:{labels:d30.map(x=>x.d),datasets:[
+      {label:'% within 30s',data:d30.map(x=>parseFloat((x.v*100).toFixed(2))),backgroundColor:'rgba(24,95,165,0.8)',borderRadius:3},
+      {label:'% within 60s',data:d60.map(x=>parseFloat((x.v*100).toFixed(2))),backgroundColor:'rgba(29,158,117,0.5)',borderRadius:3},
+      {label:'95% target',data:d30.map(()=>95),type:'line',borderColor:'#c0392b',borderDash:[5,4],borderWidth:1.5,pointRadius:0,fill:false}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'top',labels:{font:{size:11},boxWidth:10,padding:14}},
+        tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${parseFloat(ctx.parsed.y).toFixed(2)}%`}}},
+      scales:{y:{min:0,max:105,ticks:{callback:v=>v+'%',font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}},x:{ticks:{font:{size:11}},grid:{display:false}}}}
+  });
+}
+
+function renderTimeline(){
+  const hf=document.getElementById('hour-filter').value;
+  const dateMap={};
+  RAW_TIMELINE.forEach(r=>{
+    if(r.pct30===null&&r.pct60===null)return;
+    if(hf!=='all'&&r.hour!==parseInt(hf))return;
+    if(!dateMap[r.date])dateMap[r.date]={tc:0,ws30:0,ws60:0};
+    dateMap[r.date].tc+=r.calls;
+    dateMap[r.date].ws30+=r.calls*r.pct30;
+    dateMap[r.date].ws60+=r.calls*(r.pct60||r.pct30);
+  });
+  const dates=Object.keys(dateMap).sort();
+  const v30=dates.map(d=>dateMap[d].tc>0?parseFloat((dateMap[d].ws30/dateMap[d].tc*100).toFixed(2)):null);
+  const v60=dates.map(d=>dateMap[d].tc>0?parseFloat((dateMap[d].ws60/dateMap[d].tc*100).toFixed(2)):null);
+  const colors30=v30.map(v=>v===null?'#ccc':v>=95?'#1D9E75':v>=80?'#BA7517':'#c0392b');
+  if(chartT)chartT.destroy();
+  chartT=new Chart(document.getElementById('timelineChart'),{
+    type:'bar',
+    data:{labels:dates.map(d=>d.slice(5)),datasets:[
+      {label:'% within 30s',data:v30,backgroundColor:colors30,borderRadius:3},
+      {label:'% within 60s',data:v60,type:'line',borderColor:'#1D9E75',borderWidth:1.5,pointRadius:2,pointBackgroundColor:'#1D9E75',fill:false,tension:0.2},
+      {label:'95% target',data:dates.map(()=>95),type:'line',borderColor:'#c0392b',borderDash:[5,4],borderWidth:1.5,pointRadius:0,fill:false}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'top',labels:{font:{size:11},boxWidth:10,padding:14}}},
+      scales:{y:{min:0,max:105,ticks:{callback:v=>v+'%',font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}},
+        x:{ticks:{font:{size:11},maxRotation:45,autoSkip:false},grid:{display:false}}}}
+  });
+}
+
+function setHCPeriod(p){
+  hcPeriod=p;
+  ['before','after','both'].forEach(x=>document.getElementById('toggle-'+x).classList.toggle('active',x===p));
+  renderHCVolChart();
+}
+
+function getAvgVolByHour(){
+  const map={};
+  RAW_TIMELINE.forEach(r=>{
+    if(!map[r.hour])map[r.hour]={total:0,days:0};
+    map[r.hour].total+=r.calls;map[r.hour].days+=1;
+  });
+  const avgs={};
+  Object.keys(map).forEach(h=>{avgs[parseInt(h)]=map[h].total/map[h].days;});
+  return avgs;
+}
+
+function renderHCVolChart(){
+  const avgVol=getAvgVolByHour();
+  const labels=HOURS.map(hl);
+  const volData=HOURS.map(h=>parseFloat((avgVol[h]||0).toFixed(1)));
+  let datasets=[];
+  if(hcPeriod==='before'||hcPeriod==='both')datasets.push({label:'HC before 5/11 (29)',data:HOURS.map(h=>HC_BEFORE[h]||0),backgroundColor:'rgba(24,95,165,0.7)',borderRadius:4,type:'bar',yAxisID:'y'});
+  if(hcPeriod==='after'||hcPeriod==='both')datasets.push({label:'HC after 5/11 (25)',data:HOURS.map(h=>HC_AFTER[h]||0),backgroundColor:'rgba(192,57,43,0.7)',borderRadius:4,type:'bar',yAxisID:'y'});
+  datasets.push({label:'Avg call volume/hr',data:volData,type:'line',borderColor:'#BA7517',borderWidth:2,pointRadius:4,pointBackgroundColor:'#BA7517',fill:false,yAxisID:'y2',tension:0.3});
+  const bPeak=Math.max(...HOURS.map(h=>HC_BEFORE[h]||0));
+  const aPeak=Math.max(...HOURS.map(h=>HC_AFTER[h]||0));
+  document.getElementById('hc-summary').innerHTML=`
+    <div class="hc-card"><div class="hc-label">Peak HC before 5/11</div><div class="hc-val" style="color:#185FA5">${bPeak}</div></div>
+    <div class="hc-card"><div class="hc-label">Peak HC after 5/11</div><div class="hc-val" style="color:#c0392b">${aPeak}</div></div>
+    <div class="hc-card"><div class="hc-label">4–6am coverage</div><div class="hc-val" style="color:#c0392b">3 agents</div></div>
+    <div class="hc-card"><div class="hc-label">Peak avg calls/hr</div><div class="hc-val" style="color:#BA7517">16.4</div></div>
+  `;
+  if(chartHC)chartHC.destroy();
+  chartHC=new Chart(document.getElementById('hcvolChart'),{type:'bar',data:{labels,datasets},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'top',labels:{font:{size:11},boxWidth:10,padding:14}}},
+      scales:{y:{position:'left',title:{display:true,text:'Scheduled HC',font:{size:11}},min:0,max:35,ticks:{font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}},
+        y2:{position:'right',title:{display:true,text:'Avg calls/hr',font:{size:11}},min:0,max:35,ticks:{font:{size:11}},grid:{display:false}},
+        x:{ticks:{font:{size:11}},grid:{display:false}}}}
+  });
+}
+
+function renderErlangChart(){
+  if(chartErl)chartErl.destroy();
+  chartErl=new Chart(document.getElementById('erlangChart'),{
+    type:'bar',
+    data:{labels:ERLANG_DATA.map(d=>d.label),datasets:[
+      {label:'Optimal HC (Erlang C)',data:ERLANG_DATA.map(d=>d.optHC),backgroundColor:'rgba(29,158,117,0.8)',borderRadius:4},
+      {label:'Scheduled HC (post 5/11)',data:ERLANG_DATA.map(d=>d.schedHC),backgroundColor:'rgba(24,95,165,0.5)',borderRadius:4},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'top',labels:{font:{size:11},boxWidth:10,padding:14}},
+        tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y} agents`}}},
+      scales:{y:{title:{display:true,text:'Agents',font:{size:11}},min:0,ticks:{font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}},
+        x:{ticks:{font:{size:11}},grid:{display:false}}}}
+  });
+}
+
+function renderErlangTable(){
+  let rows='';
+  ERLANG_DATA.forEach(d=>{
+    const gap=d.schedHC-d.optHC;
+    const gapClass=gap<0?'gap-neg':'gap-pos';
+    const gapStr=gap>=0?`+${gap}`:String(gap);
+    rows+=`<tr>
+      <td class="label">${d.label}</td>
+      <td style="text-align:right">${d.avgCalls.toFixed(1)}</td>
+      <td style="text-align:right">${d.erlangs.toFixed(2)}</td>
+      <td style="text-align:right">${d.optHC}</td>
+      <td style="text-align:right">${d.schedHC}</td>
+      <td style="text-align:right" class="${gapClass}">${gapStr}</td>
+    </tr>`;
+  });
+  document.getElementById('erlang-tbody').innerHTML=rows;
+}
+
+function renderMissLog(){
+  const f=document.getElementById('miss-filter').value;
+  const rows=RAW_TIMELINE.filter(r=>{
+    if(r.pct30===null)return false;
+    if(f==='critical')return r.pct30<0.5;
+    if(f==='warning')return r.pct30>=0.5&&r.pct30<0.95;
+    return r.pct30<0.95;
+  }).sort((a,b)=>a.pct30-b.pct30);
+  if(!rows.length){document.getElementById('miss-table').innerHTML='<p style="color:#9b9b9b;padding:1rem">No entries match.</p>';return;}
+  let t=`<table class="miss-table"><thead><tr>
+    <th>Date</th><th>Hour (PST)</th><th class="right">Calls</th>
+    <th class="right">% at 30s</th><th class="right">% at 60s</th><th>Severity</th>
+  </tr></thead><tbody>`;
+  rows.forEach(r=>{
+    const sev=r.pct30<0.5?'Critical':'Warning';
+    const bg=r.pct30<0.5?'#FCEBEB':'#FAEEDA';
+    const tc=r.pct30<0.5?'#791F1F':'#633806';
+    const p60=r.pct60!==undefined?`${(r.pct60*100).toFixed(2)}%`:'—';
+    const p60color=r.pct60>=0.95?'#1D9E75':r.pct60>=0.8?'#BA7517':'#c0392b';
+    t+=`<tr>
+      <td>${r.date}</td><td>${hl(r.hour)}</td><td class="right">${r.calls}</td>
+      <td class="right" style="font-weight:600;color:${r.pct30<0.5?'#c0392b':'#BA7517'}">${(r.pct30*100).toFixed(2)}%</td>
+      <td class="right" style="font-weight:600;color:${p60color}">${p60}</td>
+      <td><span class="severity-badge" style="background:${bg};color:${tc}">${sev}</span></td>
+    </tr>`;
+  });
+  t+='</tbody></table>';
+  document.getElementById('miss-table').innerHTML=t;
+}
+
+buildHeatmap();
+</script>
+</body>
+</html>
